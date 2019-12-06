@@ -18,12 +18,11 @@
 #include "kpu.h"
 #include "region_layer.h"
 #include "image_process.h"
-#include "board_config.h"
 #include "w25qxx.h"
 #define INCBIN_STYLE INCBIN_STYLE_SNAKE
 #define INCBIN_PREFIX
 #include "incbin.h"
-#include "Includes.h"
+#include "board_config.h"
 
 #define PLL0_OUTPUT_FREQ 800000000UL
 #define PLL1_OUTPUT_FREQ 400000000UL
@@ -43,7 +42,7 @@ static float anchor[ANCHOR_NUM * 2] = {1.3221, 1.73145, 3.19275, 4.00944, 5.0558
 
 #if LOAD_KMODEL_FROM_FLASH
 #define KMODEL_SIZE (1501 * 1024)
-uint8_t model_data[KMODEL_SIZE];
+uint8_t *model_data;
 #else
 INCBIN(model, "detect.kmodel");
 #endif
@@ -71,25 +70,6 @@ static int dvp_irq(void *ctx)
 
 static void io_mux_init(void)
 {
-#if BOARD_LICHEEDAN
-    /* Init DVP IO map and function settings */
-    fpioa_set_function(42, FUNC_CMOS_RST);
-    fpioa_set_function(44, FUNC_CMOS_PWDN);
-    fpioa_set_function(46, FUNC_CMOS_XCLK);
-    fpioa_set_function(43, FUNC_CMOS_VSYNC);
-    fpioa_set_function(45, FUNC_CMOS_HREF);
-    fpioa_set_function(47, FUNC_CMOS_PCLK);
-    fpioa_set_function(41, FUNC_SCCB_SCLK);
-    fpioa_set_function(40, FUNC_SCCB_SDA);
-
-    /* Init SPI IO map and function settings */
-    fpioa_set_function(38, FUNC_GPIOHS0 + DCX_GPIONUM);
-    fpioa_set_function(36, FUNC_SPI0_SS3);
-    fpioa_set_function(39, FUNC_SPI0_SCLK);
-    fpioa_set_function(37, FUNC_GPIOHS0 + RST_GPIONUM);
-
-    sysctl_set_spi0_dvp_data(1);
-#elif BOARD_PADDLEPI
 	/* Init DVP IO map and function settings */
 	fpioa_set_function(OV_RST_PIN, FUNC_CMOS_RST);
 	fpioa_set_function(OV_PWDN_PIN, FUNC_CMOS_PWDN);
@@ -110,46 +90,18 @@ static void io_mux_init(void)
 	gpiohs_set_drive_mode(LCD_RST_IO, GPIO_DM_OUTPUT);
 	gpiohs_set_pin(LCD_RST_IO, GPIO_PV_HIGH);
 
-#else
-    /* Init DVP IO map and function settings */
-    fpioa_set_function(11, FUNC_CMOS_RST);
-    fpioa_set_function(13, FUNC_CMOS_PWDN);
-    fpioa_set_function(14, FUNC_CMOS_XCLK);
-    fpioa_set_function(12, FUNC_CMOS_VSYNC);
-    fpioa_set_function(17, FUNC_CMOS_HREF);
-    fpioa_set_function(15, FUNC_CMOS_PCLK);
-    fpioa_set_function(10, FUNC_SCCB_SCLK);
-    fpioa_set_function(9, FUNC_SCCB_SDA);
-
-    /* Init SPI IO map and function settings */
-    fpioa_set_function(8, FUNC_GPIOHS0 + 2);
-    fpioa_set_function(6, FUNC_SPI0_SS3);
-    fpioa_set_function(7, FUNC_SPI0_SCLK);
-
-    sysctl_set_spi0_dvp_data(1);
-    fpioa_set_function(26, FUNC_GPIOHS0 + 8);
-    gpiohs_set_drive_mode(8, GPIO_DM_INPUT);
-
-#endif
+    // LCD Backlight
+    fpioa_set_function(LCD_BLIGHT_PIN, FUNC_GPIOHS0 + LCD_BLIGHT_IO);
+    gpiohs_set_drive_mode(LCD_BLIGHT_IO, GPIO_DM_OUTPUT);
+    gpiohs_set_pin(LCD_BLIGHT_IO, GPIO_PV_LOW);
 }
 
 static void io_set_power(void)
 {
-#if BOARD_LICHEEDAN
-        /* Set dvp and spi pin to 1.8V */
-        sysctl_set_power_mode(SYSCTL_POWER_BANK6, SYSCTL_POWER_V18);
-        sysctl_set_power_mode(SYSCTL_POWER_BANK7, SYSCTL_POWER_V18);
-#elif BOARD_PADDLEPI
-		/* Set dvp and spi pin to 1.8V */
-		sysctl_set_power_mode(SYSCTL_POWER_BANK0, SYSCTL_POWER_V33);
-		sysctl_set_power_mode(SYSCTL_POWER_BANK1, SYSCTL_POWER_V33);
-		sysctl_set_power_mode(SYSCTL_POWER_BANK2, SYSCTL_POWER_V18);
-#else
-        /* Set dvp and spi pin to 1.8V */
-        sysctl_set_power_mode(SYSCTL_POWER_BANK0, SYSCTL_POWER_V18);
-        sysctl_set_power_mode(SYSCTL_POWER_BANK1, SYSCTL_POWER_V18);
-        sysctl_set_power_mode(SYSCTL_POWER_BANK2, SYSCTL_POWER_V18);
-#endif
+	/* Set dvp and spi pin to 1.8V */
+	sysctl_set_power_mode(SYSCTL_POWER_BANK0, SYSCTL_POWER_V33);
+	sysctl_set_power_mode(SYSCTL_POWER_BANK1, SYSCTL_POWER_V33);
+	sysctl_set_power_mode(SYSCTL_POWER_BANK2, SYSCTL_POWER_V18);
 }
 
 #if (CLASS_NUMBER > 1)
@@ -299,41 +251,22 @@ int main(void)
     w25qxx_init(3, 0);
     w25qxx_enable_quad_mode();
 #if LOAD_KMODEL_FROM_FLASH
-    w25qxx_read_data(0xA00000, model_data, KMODEL_SIZE, W25QXX_QUAD_FAST);
+    model_data = (uint8_t*)malloc(KMODEL_SIZE + 255);
+    uint8_t *model_data_align = (uint8_t*)(((uintptr_t)model_data+255)&(~255));
+    w25qxx_read_data(0xA00000, model_data_align, KMODEL_SIZE, W25QXX_QUAD_FAST);
+#else
+    uint8_t *model_data_align = model_data;
 #endif
     /* LCD init */
     printf("LCD init\n");
     lcd_init();
-#if BOARD_LICHEEDAN
-    #if OV5640
-        lcd_set_direction(DIR_YX_RLUD);
-    #else
-        lcd_set_direction(DIR_YX_RLDU);
-    #endif
-#elif BOARD_PADDLEPI
 	lcd_set_direction(DIR_YX_RLDU);
-#else
-    #if OV5640
-        lcd_set_direction(DIR_YX_RLUD);
-    #else
-        lcd_set_direction(DIR_YX_LRDU);
-    #endif
-#endif
+
     lcd_clear(BLACK);
 	lcd_draw_string(136, 70, "DEMO", WHITE);
 	lcd_draw_string(104, 150, "20 class detection", WHITE);
     /* DVP init */
     printf("DVP init\n");
-    #if OV5640
-    dvp_init(16);
-    dvp_set_xclk_rate(12000000);
-    dvp_enable_burst();
-    dvp_set_output_enable(0, 1);
-    dvp_set_output_enable(1, 1);
-    dvp_set_image_format(DVP_CFG_RGB_FORMAT);
-    dvp_set_image_size(320, 240);
-    ov5640_init();
-    #else
     dvp_init(8);
     dvp_set_xclk_rate(24000000);
     dvp_enable_burst();
@@ -342,7 +275,7 @@ int main(void)
     dvp_set_image_format(DVP_CFG_RGB_FORMAT);
     dvp_set_image_size(320, 240);
     ov2640_init();
-    #endif
+ 
     kpu_image.pixel = 3;
     kpu_image.width = 320;
     kpu_image.height = 240;
@@ -365,7 +298,7 @@ int main(void)
     plic_irq_register(IRQN_DVP_INTERRUPT, dvp_irq, NULL);
     plic_irq_enable(IRQN_DVP_INTERRUPT);
     /* init obj detect model */
-    if (kpu_load_kmodel(&obj_detect_task, model_data) != 0)
+    if (kpu_load_kmodel(&obj_detect_task, model_data_align) != 0)
     {
         printf("\nmodel init error\n");
         while (1);

@@ -40,7 +40,7 @@ static float anchor[ANCHOR_NUM * 2] = {1.889,2.5245,  2.9465,3.94056, 3.99987,5.
 
 #if LOAD_KMODEL_FROM_FLASH
 #define KMODEL_SIZE (380 * 1024)
-uint8_t model_data[KMODEL_SIZE];
+uint8_t* model_data;
 #else
 INCBIN(model, "detect.kmodel");
 #endif
@@ -169,7 +169,11 @@ int main(void)
     w25qxx_init(3, 0);
     w25qxx_enable_quad_mode();
 #if LOAD_KMODEL_FROM_FLASH
-    w25qxx_read_data(0xA00000, model_data, KMODEL_SIZE, W25QXX_QUAD_FAST);
+    model_data = (uint8_t*)malloc(KMODEL_SIZE + 255);
+    uint8_t *model_data_align = (uint8_t*)(((uintptr_t)model_data+255)&(~255));
+    w25qxx_read_data(0xA00000, model_data_align, KMODEL_SIZE, W25QXX_QUAD_FAST);
+#else
+    uint8_t *model_data_align = model_data;
 #endif
     /* LCD init */
     printf("LCD init\n");
@@ -205,7 +209,7 @@ int main(void)
     plic_irq_register(IRQN_DVP_INTERRUPT, dvp_irq, NULL);
     plic_irq_enable(IRQN_DVP_INTERRUPT);
     /* init face detect model */
-    if (kpu_load_kmodel(&face_detect_task, model_data) != 0)
+    if (kpu_load_kmodel(&face_detect_task, model_data_align) != 0)
     {
         printf("\nmodel init error\n");
         while (1);

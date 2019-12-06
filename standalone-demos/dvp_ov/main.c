@@ -25,9 +25,10 @@
 #include "unistd.h"
 #include "board_config.h"
 #include "gpiohs.h"
+#include "iomem.h"
 
-uint32_t g_lcd_gram0[38400] __attribute__((aligned(64)));
-uint32_t g_lcd_gram1[38400] __attribute__((aligned(64)));
+uint32_t *g_lcd_gram0;
+uint32_t *g_lcd_gram1;
 
 volatile uint8_t g_dvp_finish_flag;
 volatile uint8_t g_ram_mux;
@@ -103,6 +104,9 @@ int main(void)
     lcd_init();
     lcd_set_direction(DIR_YX_RLDU);
     lcd_clear(BLACK);
+
+    g_lcd_gram0 = (uint32_t *)iomem_malloc(320*240*2);
+    g_lcd_gram1 = (uint32_t *)iomem_malloc(320*240*2);
 
     /* DVP init */
     printf("DVP init\n");

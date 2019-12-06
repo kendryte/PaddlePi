@@ -17,10 +17,11 @@
 #include <string.h>
 #include <math.h>
 #include "image_process.h"
+#include "iomem.h"
 
 int image_init(image_t *image)
 {
-    image->addr = malloc(image->width * image->height * image->pixel);
+    image->addr = iomem_malloc(image->width * image->height * image->pixel);
     if (image->addr == NULL)
         return -1;
     return 0;
@@ -28,7 +29,7 @@ int image_init(image_t *image)
 
 void image_deinit(image_t *image)
 {
-    free(image->addr);
+    iomem_free(image->addr);
 }
 
 void image_crop(image_t *image_src, image_t *image_dst, uint16_t x_offset, uint16_t y_offset)
