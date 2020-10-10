@@ -62,6 +62,7 @@ void lcd_draw_string(uint16_t x, uint16_t y, char *str, uint16_t color);
 void lcd_draw_picture(uint16_t x1, uint16_t y1, uint16_t width, uint16_t height, uint32_t *ptr);
 void lcd_draw_rectangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t width, uint16_t color);
 void lcd_ram_draw_string(char *str, uint32_t *ptr, uint16_t font_color, uint16_t bg_color);
+void ram_draw_string(uint32_t *ptr, uint16_t x, uint16_t y, char *str, uint16_t color);
 
 #endif
 

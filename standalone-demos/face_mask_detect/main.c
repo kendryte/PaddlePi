@@ -12,18 +12,25 @@
 #include "lcd.h"
 #include "nt35310.h"
 #include "dvp.h"
-#include "ov5640.h"
+#include "board_config.h"
+
+#if (BOARD_VERSION == BOARD_V1_2_LE)
 #include "ov2640.h"
+#elif (BOARD_VERSION == BOARD_V1_3)
+#include "key.h"
+#include "pwm.h"
+#include "gc0328.h"
+#include "tick.h"
+#endif
+
 #include "uarths.h"
 #include "kpu.h"
 #include "region_layer.h"
 #include "image_process.h"
-#include "board_config.h"
 #include "w25qxx.h"
 #define INCBIN_STYLE INCBIN_STYLE_SNAKE
 #define INCBIN_PREFIX
 #include "incbin.h"
-#include "Includes.h"
 
 #define PLL0_OUTPUT_FREQ 800000000UL
 #define PLL1_OUTPUT_FREQ 400000000UL
@@ -59,6 +66,19 @@ INCBIN(model, "detect_9.kmodel");
 #endif
 #endif
 
+#if (BOARD_VERSION == BOARD_V1_3)
+uint8_t g_camera_no = 0;
+
+void camera_switch(void)
+{
+    g_camera_no = !g_camera_no;
+    g_camera_no ? open_gc0328_0() : open_gc0328_1();
+
+    int enable = g_camera_no ? 1 : 0;
+    pwm_set_enable(1, 1, enable);
+}
+#endif 
+
 static void ai_done(void *ctx)
 {
     g_ai_done_flag = 1;
@@ -80,87 +100,54 @@ static int dvp_irq(void *ctx)
     return 0;
 }
 
-static void io_mux_init(void)
+static void io_init(void)
 {
-#if BOARD_LICHEEDAN
     /* Init DVP IO map and function settings */
-    fpioa_set_function(42, FUNC_CMOS_RST);
-    fpioa_set_function(44, FUNC_CMOS_PWDN);
-    fpioa_set_function(46, FUNC_CMOS_XCLK);
-    fpioa_set_function(43, FUNC_CMOS_VSYNC);
-    fpioa_set_function(45, FUNC_CMOS_HREF);
-    fpioa_set_function(47, FUNC_CMOS_PCLK);
-    fpioa_set_function(41, FUNC_SCCB_SCLK);
-    fpioa_set_function(40, FUNC_SCCB_SDA);
+#if (BOARD_VERSION == BOARD_V1_2_LE)
+    fpioa_set_function(DVP_RST_PIN, FUNC_CMOS_RST);
+#endif
+    fpioa_set_function(DVP_PWDN_PIN, FUNC_CMOS_PWDN);
+    fpioa_set_function(DVP_XCLK_PIN, FUNC_CMOS_XCLK);
+    fpioa_set_function(DVP_VSYNC_PIN, FUNC_CMOS_VSYNC);
+    fpioa_set_function(DVP_HREF_PIN, FUNC_CMOS_HREF);
+    fpioa_set_function(DVP_PCLK_PIN, FUNC_CMOS_PCLK);
+    fpioa_set_function(DVP_SCCB_SCLK_PIN, FUNC_SCCB_SCLK);
+    fpioa_set_function(DVP_SCCB_SDA_PIN, FUNC_SCCB_SDA);
 
     /* Init SPI IO map and function settings */
-    fpioa_set_function(38, FUNC_GPIOHS0 + DCX_GPIONUM);
-    fpioa_set_function(36, FUNC_SPI0_SS3);
-    fpioa_set_function(39, FUNC_SPI0_SCLK);
-    fpioa_set_function(37, FUNC_GPIOHS0 + RST_GPIONUM);
+    fpioa_set_function(LCD_DC_PIN, FUNC_GPIOHS0 + LCD_DC_IO);
+    fpioa_set_function(LCD_CS_PIN, FUNC_SPI0_SS3);
+    fpioa_set_function(LCD_RW_PIN, FUNC_SPI0_SCLK);
+    fpioa_set_function(LCD_RST_PIN, FUNC_GPIOHS0 + LCD_RST_IO);
 
     sysctl_set_spi0_dvp_data(1);
-#elif BOARD_PADDLEPI
-	/* Init DVP IO map and function settings */
-	fpioa_set_function(OV_RST_PIN, FUNC_CMOS_RST);
-	fpioa_set_function(OV_PWDN_PIN, FUNC_CMOS_PWDN);
-	fpioa_set_function(OV_XCLK_PIN, FUNC_CMOS_XCLK);
-	fpioa_set_function(OV_VSYNC_PIN, FUNC_CMOS_VSYNC);
-	fpioa_set_function(OV_HREF_PIN, FUNC_CMOS_HREF);
-	fpioa_set_function(OV_PCLK_PIN, FUNC_CMOS_PCLK);
-	fpioa_set_function(OV_SCCB_SCLK_PIN, FUNC_SCCB_SCLK);
-	fpioa_set_function(OV_SCCB_SDA_PIN, FUNC_SCCB_SDA);
-	sysctl_set_spi0_dvp_data(1);
 
-	/* Init LCD IO map and function settings */
-	fpioa_set_function(LCD_DC_PIN, FUNC_GPIOHS0 + LCD_DC_IO);
-	fpioa_set_function(LCD_CS_PIN, FUNC_SPI0_SS3);
-	fpioa_set_function(LCD_RW_PIN, FUNC_SPI0_SCLK);
+    /* LCD Backlight */
+    fpioa_set_function(LCD_BLIGHT_PIN, FUNC_GPIOHS0 + LCD_BLIGHT_IO);
+    gpiohs_set_drive_mode(LCD_BLIGHT_IO, GPIO_DM_OUTPUT);
+    gpiohs_set_pin(LCD_BLIGHT_IO, GPIO_PV_LOW);
 
-	fpioa_set_function(LCD_RST_PIN, FUNC_GPIOHS0 + LCD_RST_IO);
-	gpiohs_set_drive_mode(LCD_RST_IO, GPIO_DM_OUTPUT);
-	gpiohs_set_pin(LCD_RST_IO, GPIO_PV_HIGH);
+#if (BOARD_VERSION == BOARD_V1_3)
+    /* KEY IO map and function settings */
+    fpioa_set_function(KEY_PIN, FUNC_GPIOHS0 + KEY_IO);
+    gpiohs_set_drive_mode(KEY_IO, GPIO_DM_INPUT_PULL_UP);
+    gpiohs_set_pin_edge(KEY_IO, GPIO_PE_FALLING);
+    gpiohs_irq_register(KEY_IO, 1, key_trigger, NULL);
 
-#else
-    /* Init DVP IO map and function settings */
-    fpioa_set_function(11, FUNC_CMOS_RST);
-    fpioa_set_function(13, FUNC_CMOS_PWDN);
-    fpioa_set_function(14, FUNC_CMOS_XCLK);
-    fpioa_set_function(12, FUNC_CMOS_VSYNC);
-    fpioa_set_function(17, FUNC_CMOS_HREF);
-    fpioa_set_function(15, FUNC_CMOS_PCLK);
-    fpioa_set_function(10, FUNC_SCCB_SCLK);
-    fpioa_set_function(9, FUNC_SCCB_SDA);
-
-    /* Init SPI IO map and function settings */
-    fpioa_set_function(8, FUNC_GPIOHS0 + 2);
-    fpioa_set_function(6, FUNC_SPI0_SS3);
-    fpioa_set_function(7, FUNC_SPI0_SCLK);
-
-    sysctl_set_spi0_dvp_data(1);
-    fpioa_set_function(26, FUNC_GPIOHS0 + 8);
-    gpiohs_set_drive_mode(8, GPIO_DM_INPUT);
-
+     /* pwm IO.*/
+    fpioa_set_function(LED_IR_PIN, FUNC_TIMER0_TOGGLE2 + 1 * 4);         
+     /* Init PWM */
+    pwm_init(1);
+    pwm_set_frequency(1, 1, 3000, 0.3); 
+    pwm_set_enable(1, 1, 0);
 #endif
 }
 
 static void io_set_power(void)
 {
-#if BOARD_LICHEEDAN
-        /* Set dvp and spi pin to 1.8V */
-        sysctl_set_power_mode(SYSCTL_POWER_BANK6, SYSCTL_POWER_V18);
-        sysctl_set_power_mode(SYSCTL_POWER_BANK7, SYSCTL_POWER_V18);
-#elif BOARD_PADDLEPI
-		/* Set dvp and spi pin to 1.8V */
-		sysctl_set_power_mode(SYSCTL_POWER_BANK0, SYSCTL_POWER_V33);
-		sysctl_set_power_mode(SYSCTL_POWER_BANK1, SYSCTL_POWER_V33);
-		sysctl_set_power_mode(SYSCTL_POWER_BANK2, SYSCTL_POWER_V18);
-#else
-        /* Set dvp and spi pin to 1.8V */
-        sysctl_set_power_mode(SYSCTL_POWER_BANK0, SYSCTL_POWER_V18);
-        sysctl_set_power_mode(SYSCTL_POWER_BANK1, SYSCTL_POWER_V18);
-        sysctl_set_power_mode(SYSCTL_POWER_BANK2, SYSCTL_POWER_V18);
-#endif
+    /* Set dvp and spi pin to 1.8V */
+    sysctl_set_power_mode(SYSCTL_POWER_BANK6, SYSCTL_POWER_V18);
+    sysctl_set_power_mode(SYSCTL_POWER_BANK7, SYSCTL_POWER_V18);
 }
 
 #if (CLASS_NUMBER > 1)
@@ -283,9 +270,9 @@ int main(void)
     sysctl_pll_set_freq(SYSCTL_PLL1, PLL1_OUTPUT_FREQ);
     sysctl_clock_enable(SYSCTL_CLOCK_AI);
     uarths_init();
-    io_set_power();
-    io_mux_init();
     plic_init();
+    io_set_power();
+    io_init();
 	lable_init();
     /* flash init */
     printf("flash init\n");
@@ -297,36 +284,12 @@ int main(void)
     /* LCD init */
     printf("LCD init\n");
     lcd_init();
-#if BOARD_LICHEEDAN
-    #if OV5640
-        lcd_set_direction(DIR_YX_RLUD);
-    #else
-        lcd_set_direction(DIR_YX_RLDU);
-    #endif
-#elif BOARD_PADDLEPI
 	lcd_set_direction(DIR_YX_RLDU);
-#else
-    #if OV5640
-        lcd_set_direction(DIR_YX_RLUD);
-    #else
-        lcd_set_direction(DIR_YX_LRDU);
-    #endif
-#endif
     lcd_clear(BLACK);
 	lcd_draw_string(136, 70, "DEMO", WHITE);
 	lcd_draw_string(104, 150, "face mask detection", WHITE);
     /* DVP init */
     printf("DVP init\n");
-    #if OV5640
-    dvp_init(16);
-    dvp_set_xclk_rate(12000000);
-    dvp_enable_burst();
-    dvp_set_output_enable(0, 1);
-    dvp_set_output_enable(1, 1);
-    dvp_set_image_format(DVP_CFG_RGB_FORMAT);
-    dvp_set_image_size(320, 240);
-    ov5640_init();
-    #else
     dvp_init(8);
     dvp_set_xclk_rate(24000000);
     dvp_enable_burst();
@@ -334,8 +297,13 @@ int main(void)
     dvp_set_output_enable(1, 1);
     dvp_set_image_format(DVP_CFG_RGB_FORMAT);
     dvp_set_image_size(320, 240);
+#if (BOARD_VERSION == BOARD_V1_2_LE)
     ov2640_init();
-    #endif
+#elif (BOARD_VERSION == BOARD_V1_3)
+    gc0328_init();
+    open_gc0328_1();
+#endif
+
     kpu_image.pixel = 3;
     kpu_image.width = 320;
     kpu_image.height = 256;
@@ -368,10 +336,21 @@ int main(void)
     region_layer_init(&obj_detect_rl, 10, 8, (4 + 2 + 1) * ANCHOR_NUM, kpu_image.width, kpu_image.height);
     /* enable global interrupt */
     sysctl_enable_irq();
+
+#if (BOARD_VERSION == BOARD_V1_3)
+    tick_init(TICK_NANOSECONDS);
+#endif
+
     /* system start */
     printf("System start\n");
     while (1)
     {
+#if (BOARD_VERSION == BOARD_V1_3)
+        if (KEY_PRESS == key_get())
+        {
+            camera_switch();
+        }
+#endif
         g_dvp_finish_flag = 0;
         dvp_clear_interrupt(DVP_STS_FRAME_START | DVP_STS_FRAME_FINISH);
         dvp_config_interrupt(DVP_CFG_START_INT_ENABLE | DVP_CFG_FINISH_INT_ENABLE, 1);

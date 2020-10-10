@@ -17,7 +17,6 @@
 #include "lcd.h"
 #include "nt35310.h"
 #include "font.h"
-#include "board_config.h"
 
 static lcd_ctl_t lcd_ctl;
 
@@ -172,6 +171,43 @@ void lcd_ram_draw_string(char *str, uint32_t *ptr, uint16_t font_color, uint16_t
         ptr += 4;
     }
 }
+
+void ram_draw_char(uint32_t *ptr, uint16_t x, uint16_t y, char c, uint16_t color)
+{
+    uint8_t i, j, data;
+    uint16_t *addr;
+
+    for (i = 0; i < 16; i++)
+    {
+        addr = ((uint16_t *)ptr) + y * (lcd_ctl.width + 1) + x;
+        data = ascii0816[c * 16 + i];
+        for (j = 0; j < 8; j++)
+        {
+            if (data & 0x80)
+            {
+                if ((x + j) & 1)
+                    *(addr - 1) = color;
+                else
+                    *(addr + 1) = color;
+            }
+            data <<= 1;
+            addr++;
+        }
+        y++;
+    }
+}
+
+
+void ram_draw_string(uint32_t *ptr, uint16_t x, uint16_t y, char *str, uint16_t color)
+{
+    while (*str)
+    {
+        ram_draw_char(ptr, x, y, *str, color);
+        str++;
+        x += 8;
+    }
+}
+
 
 void lcd_clear(uint16_t color)
 {

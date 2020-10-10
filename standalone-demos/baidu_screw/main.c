@@ -6,11 +6,20 @@
 #include "fpioa.h"
 #include "lcd.h"
 #include "dvp.h"
+#include "board_config.h"
+
+#if (BOARD_VERSION == BOARD_V1_2_LE)
 #include "ov2640.h"
+#elif (BOARD_VERSION == BOARD_V1_3)
+#include "key.h"
+#include "pwm.h"
+#include "gc0328.h"
+#include "tick.h"
+#endif
+
 #include "kpu.h"
 #include "image_process.h"
 #include "yolo_layer.h"
-#include "board_config.h"
 #define INCBIN_STYLE INCBIN_STYLE_SNAKE
 #define INCBIN_PREFIX
 #include "incbin.h"
@@ -35,6 +44,19 @@ static image_t origin_image, kpu_image, display_image;
 
 volatile uint8_t g_ai_done_flag;
 volatile uint8_t g_dvp_finish_flag;
+
+#if (BOARD_VERSION == BOARD_V1_3)
+uint8_t g_camera_no = 0;
+
+void camera_switch(void)
+{
+    g_camera_no = !g_camera_no;
+    g_camera_no ? open_gc0328_0() : open_gc0328_1();
+
+    int enable = g_camera_no ? 1 : 0;
+    pwm_set_enable(1, 1, enable);
+}
+#endif 
 
 static int ai_done(void *ctx)
 {
@@ -61,14 +83,16 @@ static int dvp_irq(void *ctx)
 static void io_init(void)
 {
     /* Init DVP IO map and function settings */
-    fpioa_set_function(OV_RST_PIN, FUNC_CMOS_RST);
-    fpioa_set_function(OV_PWDN_PIN, FUNC_CMOS_PWDN);
-    fpioa_set_function(OV_XCLK_PIN, FUNC_CMOS_XCLK);
-    fpioa_set_function(OV_VSYNC_PIN, FUNC_CMOS_VSYNC);
-    fpioa_set_function(OV_HREF_PIN, FUNC_CMOS_HREF);
-    fpioa_set_function(OV_PCLK_PIN, FUNC_CMOS_PCLK);
-    fpioa_set_function(OV_SCCB_SCLK_PIN, FUNC_SCCB_SCLK);
-    fpioa_set_function(OV_SCCB_SDA_PIN, FUNC_SCCB_SDA);
+#if (BOARD_VERSION == BOARD_V1_2_LE)
+    fpioa_set_function(DVP_RST_PIN, FUNC_CMOS_RST);
+#endif
+    fpioa_set_function(DVP_PWDN_PIN, FUNC_CMOS_PWDN);
+    fpioa_set_function(DVP_XCLK_PIN, FUNC_CMOS_XCLK);
+    fpioa_set_function(DVP_VSYNC_PIN, FUNC_CMOS_VSYNC);
+    fpioa_set_function(DVP_HREF_PIN, FUNC_CMOS_HREF);
+    fpioa_set_function(DVP_PCLK_PIN, FUNC_CMOS_PCLK);
+    fpioa_set_function(DVP_SCCB_SCLK_PIN, FUNC_SCCB_SCLK);
+    fpioa_set_function(DVP_SCCB_SDA_PIN, FUNC_SCCB_SDA);
 
     /* Init SPI IO map and function settings */
     fpioa_set_function(LCD_DC_PIN, FUNC_GPIOHS0 + LCD_DC_IO);
@@ -82,6 +106,21 @@ static void io_init(void)
     fpioa_set_function(LCD_BLIGHT_PIN, FUNC_GPIOHS0 + LCD_BLIGHT_IO);
     gpiohs_set_drive_mode(LCD_BLIGHT_IO, GPIO_DM_OUTPUT);
     gpiohs_set_pin(LCD_BLIGHT_IO, GPIO_PV_LOW);
+
+#if (BOARD_VERSION == BOARD_V1_3)
+    /* KEY IO map and function settings */
+    fpioa_set_function(KEY_PIN, FUNC_GPIOHS0 + KEY_IO);
+    gpiohs_set_drive_mode(KEY_IO, GPIO_DM_INPUT_PULL_UP);
+    gpiohs_set_pin_edge(KEY_IO, GPIO_PE_FALLING);
+    gpiohs_irq_register(KEY_IO, 1, key_trigger, NULL);
+
+     /* pwm IO.*/
+    fpioa_set_function(LED_IR_PIN, FUNC_TIMER0_TOGGLE2 + 1 * 4);         
+     /* Init PWM */
+    pwm_init(1);
+    pwm_set_frequency(1, 1, 3000, 0.3); 
+    pwm_set_enable(1, 1, 0);
+#endif
 }
 
 static void io_set_power(void)
@@ -155,8 +194,8 @@ int main(void)
     sysctl_pll_set_freq(SYSCTL_PLL1, PLL1_OUTPUT_FREQ);
     sysctl_clock_enable(SYSCTL_CLOCK_AI);
     io_set_power();
-    io_init();
     plic_init();
+    io_init();
     lable_init();
 
     /* LCD init */
@@ -174,7 +213,12 @@ int main(void)
     dvp_set_output_enable(1, 1);
     dvp_set_image_format(DVP_CFG_RGB_FORMAT);
     dvp_set_image_size(320, 240);
+#if (BOARD_VERSION == BOARD_V1_2_LE)
     ov2640_init();
+#elif (BOARD_VERSION == BOARD_V1_3)
+    gc0328_init();
+    open_gc0328_1();
+#endif
 
     /* init kpu */
     if (kpu_load_kmodel(&detect_task, model_data) != 0)
@@ -223,11 +267,23 @@ int main(void)
 
     /* enable global interrupt */
     sysctl_enable_irq();
+
+#if (BOARD_VERSION == BOARD_V1_3)
+    tick_init(TICK_NANOSECONDS);
+#endif
+
     /* system start */
     printf("System start\n");
 
     while (1)
     {
+#if (BOARD_VERSION == BOARD_V1_3)
+        if (KEY_PRESS == key_get())
+        {
+            camera_switch();
+        }
+#endif
+
         g_dvp_finish_flag = 0;
         dvp_clear_interrupt(DVP_STS_FRAME_START | DVP_STS_FRAME_FINISH);
         dvp_config_interrupt(DVP_CFG_START_INT_ENABLE | DVP_CFG_FINISH_INT_ENABLE, 1);

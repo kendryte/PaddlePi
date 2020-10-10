@@ -20,41 +20,36 @@
 
 static void  init_dcx(void)
 {
-    gpiohs_set_drive_mode(DCX_GPIONUM, GPIO_DM_OUTPUT);
-    gpiohs_set_pin(DCX_GPIONUM, GPIO_PV_HIGH);
+    gpiohs_set_drive_mode(LCD_DC_IO, GPIO_DM_OUTPUT);
+    gpiohs_set_pin(LCD_DC_IO, GPIO_PV_HIGH);
 }
 
 static void set_dcx_control(void)
 {
-    gpiohs_set_pin(DCX_GPIONUM, GPIO_PV_LOW);
+    gpiohs_set_pin(LCD_DC_IO, GPIO_PV_LOW);
 }
 
 static void set_dcx_data(void)
 {
-    gpiohs_set_pin(DCX_GPIONUM, GPIO_PV_HIGH);
+    gpiohs_set_pin(LCD_DC_IO, GPIO_PV_HIGH);
 }
 
-#if BOARD_LICHEEDAN
 static void init_rst(void)
 {
-    gpiohs_set_drive_mode(RST_GPIONUM, GPIO_DM_OUTPUT);
-    gpiohs_set_pin(RST_GPIONUM, GPIO_PV_LOW);
+    gpiohs_set_drive_mode(LCD_RST_IO, GPIO_DM_OUTPUT);
+    gpiohs_set_pin(LCD_RST_IO, GPIO_PV_LOW);
     usleep(100000);
-    gpiohs_set_pin(RST_GPIONUM, GPIO_PV_HIGH);
+    gpiohs_set_pin(LCD_RST_IO, GPIO_PV_HIGH);
     usleep(100000);
 }
-#endif
 
 void tft_hard_init(void)
 {
     init_dcx();
-    spi_init(SPI_CHANNEL, SPI_WORK_MODE_0, SPI_FF_OCTAL, 8, 0);
-#if BOARD_LICHEEDAN
     init_rst();
-    spi_set_clk_rate(SPI_CHANNEL, 20000000);
-#else
-    spi_set_clk_rate(SPI_CHANNEL, 15000000);
-#endif
+    spi_init(SPI_CHANNEL, SPI_WORK_MODE_0, SPI_FF_OCTAL, 8, 0);
+    init_rst();
+    spi_set_clk_rate(SPI_CHANNEL, 18000000);
 }
 
 void tft_write_command(uint8_t cmd)

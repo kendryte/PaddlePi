@@ -94,9 +94,6 @@
 #define DIGITAL_GAMMA_CTL2      0xE3
 #define INTERFACE_CTL           0xF6
 
-#define DCX_GPIONUM             (2)
-#define RST_GPIONUM             (0)
-
 #define SPI_CHANNEL             0
 #define SPI_SLAVE_SELECT        3
 /* clang-format on */

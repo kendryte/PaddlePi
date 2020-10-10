@@ -12,11 +12,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include "board_config.h"
+
+#if (BOARD_VERSION == BOARD_V1_2_LE)
+
 #include <stdio.h>
 #include "ov2640.h"
 #include "dvp.h"
 #include "plic.h"
-#include "board_config.h"
 
 const uint8_t ov2640_config[][2]=
 {
@@ -228,3 +231,4 @@ int ov2640_read_id(uint16_t *manuf_id, uint16_t *device_id)
     return 0;
 }
 
+#endif // (BOARD_VERSION == BOARD_V1_2_LE)
